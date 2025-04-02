@@ -1,0 +1,162 @@
+---
+title: "School Standards in Ontario"
+author: "Tomas McNamer"
+format: dashboard
+server: shiny
+---
+
+```{r}
+#| context: setup
+library(ggplot2)
+library(tidyverse)
+library(glue)
+library(leaflet)
+library(leaflet.extras)
+library(readxl)
+library(DT)
+library(bslib)
+library(bsicons)
+library(shiny)
+
+fname <- "new_sif_data_table_2021_22prelim_en_january2025.xlsx"
+
+xlsx_data <- read_excel(fname)
+
+get_data <- function(mName) {
+  clean_data <- xlsx_data |> 
+  rename_all(make.names) |>
+  filter(Municipality %in% c(mName) & Grade.Range == "9-12") |>
+  rename(pct.passed.OSSLT.first = Percentage.of.Students.That.Passed.the.Grade.10.OSSLT.on.Their.First.Attempt) |>
+  rename(pct.grade.nine.standard.math = Percentage.of.Grade.9.Students.Achieving.the.Provincial.Standard.in.Mathematics) |>
+  filter((! pct.passed.OSSLT.first %in% c("NA", "N/R", "N/D")) & (! pct.grade.nine.standard.math %in% c("S.", "NA", "N/R", "N/D"))) |>
+  select(pct.passed.OSSLT.first, pct.grade.nine.standard.math, Board.Name, School.Name, Enrolment, Latitude, Longitude) |>
+  mutate(pct.passed.OSSLT.first = (parse_number(pct.passed.OSSLT.first)) / 100) |>
+  mutate(pct.grade.nine.standard.math = (parse_number(pct.grade.nine.standard.math)) / 100) |>
+  mutate(Enrolment = parse_number(Enrolment))
+  
+  return (clean_data)
+}
+
+clean_data <- xlsx_data |>
+  rename_all(make.names) |>
+  filter(Municipality %in% c("Ottawa, City of") & Grade.Range == "9-12") |>
+  rename(pct.passed.OSSLT.first = Percentage.of.Students.That.Passed.the.Grade.10.OSSLT.on.Their.First.Attempt) |>
+  rename(pct.grade.nine.standard.math = Percentage.of.Grade.9.Students.Achieving.the.Provincial.Standard.in.Mathematics) |>
+  filter((! pct.passed.OSSLT.first %in% c("NA", "N/R", "N/D")) & (! pct.grade.nine.standard.math %in% c("S.", "NA", "N/R", "N/D"))) |>
+  select(pct.passed.OSSLT.first, pct.grade.nine.standard.math, Board.Name, School.Name, Latitude, Longitude) |>
+  mutate(pct.passed.OSSLT.first = (parse_number(pct.passed.OSSLT.first)) / 100) |>
+  mutate(pct.grade.nine.standard.math = (parse_number(pct.grade.nine.standard.math)) / 100)
+
+f <- colorRamp(c("red", "orange", "green"))
+
+uMuni <- sort(unique(xlsx_data$Municipality))
+
+lst <- (clean_data$pct.passed.OSSLT.first + clean_data$pct.grade.nine.standard.math) / 2
+
+colors <- f(lst) |>
+  round(0) |>
+  `colnames<-`(c("R","G","B")) |>
+  apply(1,function (x) paste(as.hexmode(x) |> format(width=2),collapse="")) |>
+  matrix(ncol=1) |>
+  apply(1, function (x) paste("#", x, sep=""))
+```
+
+## Row
+
+###  {.sidebar}
+
+**Settings**
+
+```{r}
+selectInput("municipality", "Municipality", uMuni)
+```
+
+```{r}
+#| context: server
+
+data <- reactive({get_data(input$municipality)})
+
+output$mathRate <- reactive({
+  paste(round(mean(data()$pct.grade.nine.standard.math), 4) * 100, "%")
+})
+
+output$ossltRate <- reactive({
+  paste(round(mean(data()$pct.passed.OSSLT.first), 4) * 100, "%")
+})
+
+output$enrolment <- reactive({
+  sum(data()$Enrolment)
+})
+
+output$data <- renderDT({
+  data() |>
+  rename("School Board" = Board.Name) |>
+  rename("OSSLT" = pct.passed.OSSLT.first) |>
+  rename("Grade 9 Math" = pct.grade.nine.standard.math) |>
+  rename("School" = School.Name) |>
+  select("School", "School Board", "Enrolment", "OSSLT", "Grade 9 Math")
+})
+
+output$map <- renderLeaflet({
+  leaflet() |>
+  addTiles() |>
+  addCircleMarkers(
+    data = data(),
+    color=colors,
+    fillOpacity = 0.5,
+    opacity=1,
+    radius=8,
+    lng=data()$Longitude,
+    lat=data()$Latitude,
+    popup = glue("{data()$School.Name} ({data()$Board.Name}) <br /> OSSLT - {data()$pct.passed.OSSLT.first} <br /> Grade 9 Math - {data()$pct.grade.nine.standard.math}")
+  )
+})
+```
+
+### Column
+
+
+#### Row
+
+```{r}
+value_box(
+  title = 'Average OSSLT First Try Pass Rate', 
+  value=textOutput("ossltRate"),
+  showcase=bsicons::bs_icon('book'),
+  theme="red"
+)
+```
+
+
+#### Row
+
+```{r}
+value_box(
+  title = 'Average Rate of Grade 9 Achieving Provincial Standard for Math', 
+  value=textOutput("mathRate"),
+  showcase=bsicons::bs_icon('calculator'),
+  theme="teal"
+)
+```
+
+### Column
+
+```{r}
+value_box(
+  title = 'High School Enrolment', 
+  value=textOutput("enrolment"),
+  showcase=bsicons::bs_icon('person'),
+  theme="pink"
+)
+```
+
+## Row
+
+```{r}
+# knitr::kable(clean_data)
+DTOutput('data')
+```
+
+```{r}
+leafletOutput('map')
+```

@@ -1,0 +1,10 @@
+.RData
+.Rhistory
+.Rproj.user
+*.Rproj
+*.html
+dash_files
+*.xlsx
+*.rproj
+rsconnect
+t.R
